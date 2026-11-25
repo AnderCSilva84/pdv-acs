@@ -18,7 +18,11 @@ jobs:
           distribution: temurin
           java-version: '21'
       - run: npm ci
+      - run: node scripts/check-backend-package.mjs
       - run: npm ci
+        working-directory: functions
+      - run: npm audit --audit-level=moderate
+      - run: npm audit --audit-level=moderate
         working-directory: functions
       - run: npm install --global firebase-tools@15.25.1
       - run: npm run lint

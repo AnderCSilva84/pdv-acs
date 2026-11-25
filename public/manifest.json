@@ -12,7 +12,7 @@
   "orientation": "landscape",
   "icons": [
     {
-      "src": "/branding/pdv-acs-app-icon.png",
+      "src": "/branding/pdv-acs-install-icon.png",
       "sizes": "1254x1254",
       "type": "image/png",
       "purpose": "any"

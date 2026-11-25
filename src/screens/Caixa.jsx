@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from '@capacitor/core';
 import { FiCreditCard, FiDollarSign } from 'react-icons/fi';
 import { SiPix } from 'react-icons/si';
-import { getPdfLogo } from "../utils/pdfLogo";
+import { addPdvPdfBranding, addCashClosingHeader } from "../utils/pdfLogo";
 import {
   abrirCaixa,
   addRetiradaCaixa,
@@ -20,6 +20,7 @@ import { subscribeAtendentes } from "../services/atendentes";
 import { subscribeGruposProdutos } from "../services/gruposProdutos";
 import { subscribeProdutos } from "../services/produtos";
 import { isManagementRole } from "../utils/access";
+import { podeOperarCaixa, atendentesPermitidosNoCaixa } from "../utils/caixaAccess";
 import { hojeISO } from "../services/lancamentos";
 import {
   getVendasPorCaixa,
@@ -27,7 +28,7 @@ import {
   subscribeVendasPorCaixa,
 } from "../services/vendas";
 import { imprimirComprovanteTermico } from "../services/comprovanteTermico";
-import { usaImpressoraInterna } from "../services/impressoraNativa";
+import { usaImpressoraInterna, consultarImpressoraInterna, imprimirTextoNativo } from "../services/impressoraNativa";
 import {
   FORMAS_PAGAMENTO,
   descreverPagamentos,
@@ -366,6 +367,8 @@ export default function Caixa({
 }) {
   const podeVerDetalhesFinanceiros = compactMode || isManagementRole(accessRole);
   const usaFechamentoSimplificadoGelato = !compactMode && !podeVerDetalhesFinanceiros;
+  const terminalNativo = Capacitor.isNativePlatform();
+  const [terminalPanel, setTerminalPanel] = useState("produtos");
   const [produtos, setProdutos] = useState([]);
   const [atendentes, setAtendentes] = useState([]);
   const [gruposProdutos, setGruposProdutos] = useState([]);
@@ -441,6 +444,12 @@ export default function Caixa({
 
     getCaixa(caixaSalvo.id).then(async (caixa) => {
       if (caixa?.status === "aberto") {
+        if (!podeOperarCaixa(caixa, uid, accessUser, accessRole)) {
+          clearStoredSession();
+          resetCaixaState();
+          setFeedbackCaixa("Este caixa pertence a outro atendente. Entre no seu proprio caixa.");
+          return;
+        }
         const caixaSincronizado = await syncCaixaDateWithOpening(caixa);
         const sessao = bindStoredSession(caixaSincronizado, accessUser.id, accessRole);
         setCaixaAtualId(caixaSincronizado.id);
@@ -451,7 +460,7 @@ export default function Caixa({
         resetCaixaState();
       }
     });
-  }, [accessRole, accessUser?.id]);
+  }, [accessRole, accessUser, uid]);
 
   useEffect(() => {
     if (!uid) return;
@@ -531,6 +540,13 @@ export default function Caixa({
         return;
       }
 
+      if (!podeOperarCaixa(caixa, uid, accessUser, accessRole)) {
+        resetCaixaState();
+        clearStoredSession();
+        setFeedbackCaixa("Este caixa pertence a outro atendente. Entre no seu proprio caixa.");
+        return;
+      }
+
       const caixaSincronizado = await syncCaixaDateWithOpening(caixa);
       const sessao = bindStoredSession(caixaSincronizado, accessUser?.id, accessRole);
       setCaixaAtual(sessao);
@@ -538,7 +554,7 @@ export default function Caixa({
     });
 
     return () => unsub();
-  }, [accessRole, accessUser?.id, caixaAtualId]);
+  }, [accessRole, accessUser, caixaAtualId, uid]);
 
   useEffect(() => {
     const unsub = subscribeVendasPorCaixa(uid, caixaAtualId, setVendasCaixa);
@@ -595,6 +611,10 @@ export default function Caixa({
   const atendentesAtivos = useMemo(
     () => atendentes.filter((item) => item.ativo !== false),
     [atendentes]
+  );
+  const atendentesEntradaCaixa = useMemo(
+    () => atendentesPermitidosNoCaixa(atendentes, accessUser, accessRole),
+    [atendentes, accessUser, accessRole]
   );
   const produtoSelecionado = useMemo(
     () => produtos.find((item) => item.id === vendaForm.produtoId),
@@ -743,6 +763,7 @@ export default function Caixa({
   }, [categoriaAtiva, categoriasDisponiveis]);
 
   function toggleRetiradaPanel() {
+    setTerminalPanel("pedido");
     setMostrandoRetirada((prev) => !prev);
     setFeedbackRetirada("");
   }
@@ -783,6 +804,7 @@ export default function Caixa({
       );
     });
 
+    if (vendaPorPeso) setTerminalPanel("pedido");
     setVendaForm((prev) => ({ ...prev, produtoId: produto.id }));
     setFeedbackVenda("");
     setToastVenda(
@@ -798,6 +820,7 @@ export default function Caixa({
       valorRecebido: "",
       data: isManagementRole(accessRole) ? vendaForm.data || dataHoje : dataHoje,
     });
+    setTerminalPanel("produtos");
     setItensVenda([]);
     setPagamentos([{ forma: "PIX", valor: "" }]);
   }
@@ -837,8 +860,11 @@ export default function Caixa({
 
   async function iniciarCaixa(e) {
     e.preventDefault();
-    const atendente = atendentesAtivos.find((item) => item.id === loginForm.atendenteId);
-    if (!atendente) return;
+    const atendente = atendentesEntradaCaixa.find((item) => item.id === loginForm.atendenteId);
+    if (!atendente) {
+      setFeedbackCaixa("Selecione seu proprio cadastro para entrar no caixa.");
+      return;
+    }
 
     setAbrindoSessao(true);
     setFeedbackCaixa("");
@@ -1042,22 +1068,11 @@ export default function Caixa({
       },
     ];
 
-    try {
-      const logoPdf = await getPdfLogo(loja?.logomarca);
-      if (logoPdf) doc.addImage(logoPdf.dataUrl, logoPdf.format, 14, 10, 24, 24);
-      y = 40;
-    } catch {
-      y = 18;
-    }
-
-    doc.setTextColor(24, 33, 47);
-    doc.setFontSize(19);
-    doc.text("Fechamento de Caixa", 14, y);
-    doc.setFontSize(10);
-    doc.setTextColor(99, 115, 140);
-    doc.text(`Relatorio do turno • ${formatDateLabel(dataHoje)}`, 14, y + 7);
-
-    y += 18;
+    y = await addCashClosingHeader(doc, {
+      loja,
+      operadora: caixaAtual.atendenteNome,
+      data: formatDateLabel(dataHoje),
+    });
     doc.setFillColor(248, 250, 252);
     doc.roundedRect(14, y, 182, 34, 6, 6, "F");
     doc.setDrawColor(226, 232, 240);
@@ -1178,6 +1193,7 @@ export default function Caixa({
       y += temDinheiro ? 18 : 12;
     });
 
+    await addPdvPdfBranding(doc, { showLogo: false });
     doc.save(`fechamento-caixa-${String(dataHoje || "").replaceAll("-", "")}.pdf`);
   }
 
@@ -1327,6 +1343,24 @@ export default function Caixa({
     }
   }
 
+  async function testarImpressora() {
+    if (imprimindo || salvandoVenda) return;
+    setImprimindo(true);
+    setTerminalPanel("pedido");
+    try {
+      const estado = await consultarImpressoraInterna();
+      if (estado.status !== 0) throw new Error(`Impressora indisponivel (status ${estado.status}). Confira papel e tampa.`);
+      const resultado = await imprimirTextoNativo("PDV ACS\nTESTE DE IMPRESSAO\nSem valor fiscal\nNenhuma venda registrada\n");
+      setFeedbackVenda(resultado?.pending || resultado?.queued
+        ? "Teste enviado para a impressora. Confira se o papel saiu."
+        : "Teste de impressao concluido. Confira o papel.");
+    } catch (error) {
+      setFeedbackVenda(`Teste de impressao: ${error?.message || "Falha na impressora."}`);
+    } finally {
+      setImprimindo(false);
+    }
+  }
+
   async function registrarRetirada(e) {
     e.preventDefault();
     if (!caixaAtual || !atendenteLogado) return;
@@ -1372,7 +1406,7 @@ export default function Caixa({
   }
 
   return (
-    <div className={`dashboard-screen ${compactMode ? "pdv-compact" : ""}`}>
+    <div className={`dashboard-screen ${terminalNativo ? `pdv-terminal ${caixaAtual ? "pdv-terminal-open" : ""}` : ""} ${compactMode ? "pdv-compact" : ""}`} data-terminal-panel={terminalNativo ? terminalPanel : undefined}>
       {!compactMode ? (
         <div
           className={`pdv-hero section-card ${loja?.imagemCapaPdv ? "pdv-hero-has-cover" : ""}`}
@@ -1393,6 +1427,7 @@ export default function Caixa({
             {!compactMode ? <small>Acoes administrativas do turno.</small> : null}
           </div>
           <div className="pdv-status-bar-actions">
+            {terminalNativo ? <button className="action-btn action-btn-secondary" type="button" onClick={testarImpressora} disabled={imprimindo || salvandoVenda}>{imprimindo ? "Testando..." : "Testar impressora"}</button> : null}
             <button
               className="action-btn action-btn-warning"
               type="button"
@@ -1446,6 +1481,12 @@ export default function Caixa({
         </div>
       ) : null}
 
+      {terminalNativo && caixaAtual ? (
+        <nav className="pdv-terminal-tabs" aria-label="Etapas da venda">
+          <button type="button" aria-pressed={terminalPanel === "produtos"} onClick={() => setTerminalPanel("produtos")}>Produtos</button>
+          <button type="button" aria-pressed={terminalPanel === "pedido"} onClick={() => setTerminalPanel("pedido")}>Pedido ({itensVendaDetalhados.length})</button>
+        </nav>
+      ) : null}
       <div className={`pdv-shell ${caixaAtual ? "is-open" : ""}`}>
         {!caixaAtual ? (
           <div className="section-card pdv-card pdv-card-primary">
@@ -1466,7 +1507,7 @@ export default function Caixa({
                 }
               >
                 <option value="">Selecione o atendente</option>
-                {atendentesAtivos.map((atendente) => (
+                {atendentesEntradaCaixa.map((atendente) => (
                   <option key={atendente.id} value={atendente.id}>
                     {atendente.nome}
                   </option>
@@ -1706,7 +1747,7 @@ export default function Caixa({
                 </form>
               ) : null}
 
-              <form className="pdv-order-form" onSubmit={registrarVenda}>
+              <form id="pdv-venda-form" className="pdv-order-form" onSubmit={registrarVenda}>
                 {isManagementRole(accessRole) ? (
                   <input
                     className="input pdv-panel-input"
@@ -1768,7 +1809,7 @@ export default function Caixa({
                       </select>
                       <label className="pdv-payment-value-card">
                         {!Capacitor.isNativePlatform() && <span>Valor nesta forma de pagamento</span>}
-                      <input className="input pdv-panel-input" type="number" min="0.01" step="0.01"
+                      <input className="input pdv-panel-input" type="number" inputMode="decimal" min="0.01" step="0.01"
                         value={pagamento.valor} onChange={(e) => atualizarPagamento(index, "valor", e.target.value)}
                         placeholder="Valor nesta forma" />
                       </label>
@@ -1842,13 +1883,13 @@ export default function Caixa({
                             />
                           </div>
                         ) : (
-                          !Capacitor.isNativePlatform() ? <div className="pdv-quantity-control">
+                          <div className="pdv-quantity-control">
                             <button type="button" aria-label={`Diminuir quantidade de ${item.nome}`} disabled={item.quantidade <= 1 || salvandoVenda || imprimindo}
                               onClick={() => atualizarItemVenda(item.produtoId, 'quantidade', Number(item.quantidade) - 1)}>−</button>
                             <span>{item.quantidade}</span>
                             <button type="button" aria-label={`Aumentar quantidade de ${item.nome}`} disabled={Number(item.quantidade) >= Number(item.produto.estoque) || salvandoVenda || imprimindo}
                               onClick={() => atualizarItemVenda(item.produtoId, 'quantidade', Number(item.quantidade) + 1)}>+</button>
-                          </div> : <span>{item.quantidade}</span>
+                          </div>
                         )}
                         {item.unidadeVenda === "kg" ? (
                           <div className="pdv-cart-metric-field">
@@ -1919,6 +1960,21 @@ export default function Caixa({
         )}
       </div>
 
+      {terminalNativo && caixaAtual ? (
+        <div className="pdv-terminal-checkout" hidden={mostrandoFechamento || mostrandoRetirada}>
+          <button type="button" className="pdv-terminal-total" onClick={() => setTerminalPanel("pedido")}>
+            <span>{itensVendaDetalhados.length} produto(s) · Ver pedido</span>
+            <strong>{formatMoney(totalCarrinho)}</strong>
+          </button>
+          {terminalPanel === "produtos" ? (
+            <button type="button" className="action-btn action-btn-primary" disabled={salvandoVenda || imprimindo || !itensVendaDetalhados.length} onClick={() => setTerminalPanel("pedido")}>Ver pedido</button>
+          ) : (
+            <button type="submit" form="pdv-venda-form" className="action-btn action-btn-primary" disabled={salvandoVenda || imprimindo || !itensVendaDetalhados.length || carrinhoTemPendencias}>
+              {salvandoVenda ? "Salvando..." : imprimindo ? "Imprimindo..." : "Finalizar"}
+            </button>
+          )}
+        </div>
+      ) : null}
       {caixaAtual ? (
         <section className="section-card pdv-sales-board">
           <div className="section-header">

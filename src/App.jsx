@@ -1,3 +1,4 @@
+import { addPdvPdfBranding, addPdfHeader } from "./utils/pdfLogo";
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { Capacitor } from '@capacitor/core';
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
@@ -106,7 +107,7 @@ const ClockIcon = (
 const SystemFooter = (
   <footer className="system-footer">
     <div className="system-footer-line">Desenvolvido por Anderson C Silva</div>
-    <div className="system-footer-line">ACS Informática</div>
+    <div className="system-footer-line">ACS Tecnologia</div>
   </footer>
 );
 
@@ -222,7 +223,7 @@ export default function App() {
   useEffect(() => {
     document.title = lojaAtiva.nome ? `PDV ACS | ${lojaAtiva.nome}` : "PDV ACS";
     const favicon = document.querySelector('link[rel="icon"]');
-    if (favicon) favicon.href = "/branding/pdv-acs-app-icon.png";
+    if (favicon) favicon.href = "/branding/pdv-acs-install-icon.png";
   }, [lojaAtiva.logomarca, lojaAtiva.nome]);
 
   function selecionarLoja(id) {
@@ -539,11 +540,11 @@ export default function App() {
           <aside className={`sidebar ${isTabletLandscape ? "sidebar-tablet-drawer" : ""} ${sidebarOpen ? "is-open" : ""}`}>
             <button className="mobile-sidebar-close" type="button" aria-label="Fechar menu" onClick={() => setSidebarOpen(false)}><FiX /></button>
             <div className="sidebar-brand pdv-system-brand">
-              <img
+              <a href="https://acstech.dev.br/" target="_blank" rel="noopener noreferrer" aria-label="PDV ACS - ACS Tecnologia"><img
                 className="sidebar-logo"
                 src="/branding/pdv-acs-horizontal-transparent.png"
                 alt="PDV ACS — Gestão e Vendas"
-              />
+              /></a>
               <div className="sidebar-title">{lojaAtiva.nome}</div>
               <div className="sidebar-subtitle">PDV ACS · Gestão e Vendas</div>
             </div>
@@ -867,7 +868,7 @@ export default function App() {
   }
 
   function exportarPDF() {
-    import("jspdf").then(({ default: jsPDF }) => {
+    import("jspdf").then(async ({ default: jsPDF }) => {
       const doc = new jsPDF();
       const itensPDF = lancamentosOrdenados;
       const totalEntradas = lancamentosFiltrados
@@ -878,22 +879,10 @@ export default function App() {
         .reduce((acc, l) => acc + Number(l.valor), 0);
       const totalFinal = totalEntradas - totalSaidas;
 
-      let y = 20;
-
-      doc.setFontSize(16);
-      doc.setTextColor(20, 20, 20);
-      doc.text("GELATO TAMANDARE", 14, y);
-
-      y += 8;
-      doc.setFontSize(11);
-      doc.setTextColor(80, 80, 80);
-      const periodoTexto =
-        buscaDataAtiva && dataInicio && dataFim
-          ? `Periodo: ${formatarDataBR(dataInicio)} ate ${formatarDataBR(dataFim)}`
-          : `Periodo: Mes ${mesSelecionado}`;
-      doc.text(periodoTexto, 14, y);
-
-      y += 10;
+      const periodoTexto = buscaDataAtiva && dataInicio && dataFim
+        ? `Periodo: ${formatarDataBR(dataInicio)} ate ${formatarDataBR(dataFim)}`
+        : `Periodo: Mes ${mesSelecionado}`;
+      let y = await addPdfHeader(doc, { loja: lojaAtiva, title: "Extrato financeiro", lines: [periodoTexto] });
       doc.setFontSize(10);
       doc.setTextColor(90, 90, 90);
       doc.text("Data", 14, y);
@@ -970,6 +959,7 @@ export default function App() {
       doc.text("TOTAL FINAL:", 14, y);
       doc.text(totalFinal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), 180, y, { align: "right" });
 
+      await addPdvPdfBranding(doc, { showLogo: false });
       doc.save(`extrato-${mesSelecionado}.pdf`);
     });
   }
@@ -1043,7 +1033,7 @@ export default function App() {
       <main className="access-login-screen">
         <section className="access-login-card">
           <div className="access-login-heading">
-            <img className="pdv-login-logo" src="/branding/pdv-acs-horizontal-transparent.png" alt="PDV ACS — Gestão e Vendas" />
+            <a href="https://acstech.dev.br/" target="_blank" rel="noopener noreferrer" aria-label="PDV ACS - ACS Tecnologia"><img className="pdv-login-logo" src="/branding/pdv-acs-horizontal-transparent.png" alt="PDV ACS — Gestão e Vendas" /></a>
             <h1>Bem-vindo</h1>
             <p>Escolha a unidade e o seu perfil para acessar.</p>
           </div>

@@ -22,7 +22,7 @@ export default defineConfig(({ mode }) => {
         transformIndexHtml(html) {
           if (mode !== 'cafe-guajara') return html
           return html
-            .replace('/manifest.json?v=4', '/manifest-guajara.json?v=3')
+            .replace('/manifest.json?v=5', '/manifest-guajara.json?v=4')
             .replace('content="#111827"', 'content="#4a2c1b"')
         },
       },

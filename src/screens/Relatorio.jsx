@@ -1,7 +1,7 @@
 import { confirmarSenhaAtual } from "../services/auth";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FiBarChart2 } from "react-icons/fi";
-import { getPdfLogo } from "../utils/pdfLogo";
+import { addPdfHeader, addPdvPdfBranding, addCashClosingHeader } from "../utils/pdfLogo";
 import {
   deleteCaixa,
   fecharCaixa,
@@ -283,6 +283,10 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
   const [feedbackCancelamento, setFeedbackCancelamento] = useState("");
   const [cancelandoVenda, setCancelandoVenda] = useState(false);
   const [reloadPeriodoKey, setReloadPeriodoKey] = useState(0);
+  const [caixaArquivando, setCaixaArquivando] = useState(null);
+  const [senhaArquivamento, setSenhaArquivamento] = useState("");
+  const [feedbackArquivamento, setFeedbackArquivamento] = useState("");
+  const [arquivandoCaixa, setArquivandoCaixa] = useState(false);
   const periodoRequestRef = useRef(0);
   const periodoFiltro = useMemo(
     () => normalizePeriodRange(dataInicioFiltro, dataFimFiltro),
@@ -528,16 +532,37 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
   const podeCancelarVenda = isManagementRole(accessUser?.role) && caixaSelecionado?.status === "aberto";
 
   async function excluirCaixa(item) {
-    if (!item?.id || item.status === "aberto") return;
+    if (!item?.id || item.status === "aberto" || arquivandoCaixa) return;
+    setFeedbackArquivamento("");
+    setSenhaArquivamento("");
+    if (Number(item.totalVendas || 0) !== 0 || Number(item.totalRetiradas || 0) !== 0) {
+      setFeedbackArquivamento("Caixas com vendas ou retiradas devem ser preservados no historico financeiro e nao podem ser excluidos.");
+      setCaixaArquivando(null);
+      return;
+    }
+    setCaixaArquivando(item);
+  }
 
-    const confirmar = window.confirm(
-      `Excluir o caixa de ${item.atendenteNome} em ${item.data}?`
-    );
-    if (!confirmar) return;
-
-    await deleteCaixa(item.id, uid);
-    setCaixaSelecionado((prev) => (prev?.id === item.id ? null : prev));
-    setReloadPeriodoKey((prev) => prev + 1);
+  async function confirmarArquivamentoCaixa(event) {
+    event.preventDefault();
+    if (!caixaArquivando || arquivandoCaixa) return;
+    setArquivandoCaixa(true);
+    setFeedbackArquivamento("");
+    try {
+      await confirmarSenhaAtual(senhaArquivamento);
+      await deleteCaixa(caixaArquivando.id, uid);
+      setCaixaSelecionado((prev) => prev?.id === caixaArquivando.id ? null : prev);
+      setCaixaArquivando(null);
+      setFeedbackArquivamento("Caixa arquivado. O registro foi preservado para auditoria.");
+      setReloadPeriodoKey((prev) => prev + 1);
+    } catch (error) {
+      setFeedbackArquivamento(String(error?.code || "").startsWith("auth/")
+        ? "Nao foi possivel confirmar sua senha. Confira a senha da conta conectada."
+        : error?.message || "Nao foi possivel arquivar o caixa. Tente novamente.");
+    } finally {
+      setSenhaArquivamento("");
+      setArquivandoCaixa(false);
+    }
   }
 
   async function fecharCaixaManual(item) {
@@ -589,24 +614,11 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
     const diferencaCaixa = possuiContagem
       ? Number(caixaSelecionado.diferencaCaixa ?? dinheiroContado - dinheiroEsperado)
       : null;
-    let y = 18;
-
-    try {
-      const logo = await getPdfLogo(loja?.logomarca);
-      if (logo) doc.addImage(logo.dataUrl, logo.format, 14, 10, 22, 22);
-      y = 38;
-    } catch {
-      y = 18;
-    }
-
-    doc.setTextColor(24, 33, 47);
-    doc.setFontSize(18);
-    doc.text("Fechamento diario de caixa", 42, y - 8);
-    doc.setFontSize(10);
-    doc.setTextColor(96, 112, 134);
-    doc.text(`Operadora: ${caixaSelecionado.atendenteNome || "Nao informada"}`, 42, y - 2);
-    doc.text(`Data: ${formatDateLabel(getCaixaReferenceDate(caixaSelecionado))}`, 42, y + 4);
-    y += 14;
+    const y = await addCashClosingHeader(doc, {
+      loja,
+      operadora: caixaSelecionado.atendenteNome,
+      data: formatDateLabel(getCaixaReferenceDate(caixaSelecionado)),
+    });
 
     autoTable(doc, {
       startY: y,
@@ -663,6 +675,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
     const dataArquivo = String(getCaixaReferenceDate(caixaSelecionado) || "").replaceAll("-", "");
     const operadoraArquivo = String(caixaSelecionado.atendenteNome || "operadora")
       .normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
+    await addPdvPdfBranding(doc, { showLogo: false });
     doc.save(`fechamento-caixa-${dataArquivo}-${operadoraArquivo}.pdf`);
   }
 
@@ -722,23 +735,10 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
     );
 
     const doc = new jsPDF();
-    let y = 18;
-
-    try {
-      const logo = await getPdfLogo(loja?.logomarca);
-      if (logo) doc.addImage(logo.dataUrl, logo.format, 14, 10, 22, 22);
-      y = 38;
-    } catch {
-      y = 18;
-    }
-
-    doc.setTextColor(24, 33, 47);
-    doc.setFontSize(18);
-    doc.text("Relatorio Gerencial", 42, y - 8);
-    doc.setFontSize(11);
-    doc.setTextColor(96, 112, 134);
-    doc.text(`Periodo analisado: ${formatDateLabel(dataInicioFiltro)} ate ${formatDateLabel(dataFimFiltro)}`, 42, y - 2);
-    y += 8;
+    let y = await addPdfHeader(doc, {
+      loja, title: "Relatorio Gerencial",
+      lines: [`Periodo analisado: ${formatDateLabel(dataInicioFiltro)} ate ${formatDateLabel(dataFimFiltro)}`],
+    });
 
     drawSummaryCard(doc, {
       x: 14,
@@ -965,6 +965,8 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
       columnStyles: { 3: { halign: "right", textColor: [185, 28, 28], fontStyle: "bold" } },
     });
 
+    await addPdvPdfBranding(doc, { showLogo: false });
+
     doc.save(`relatorio-${String(dataInicioFiltro || "").replaceAll("-", "")}-${String(dataFimFiltro || "").replaceAll("-", "")}.pdf`);
   }
 
@@ -1170,6 +1172,18 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
             <div className="section-title">Caixas com movimento no periodo</div>
             <span className="section-subtitle">{caixas.length} caixas no periodo</span>
           </div>
+          {feedbackArquivamento ? <p className="inline-feedback" role="status">{feedbackArquivamento}</p> : null}
+          {caixaArquivando ? <form className="stack-form section-card" onSubmit={confirmarArquivamentoCaixa}>
+            <strong>Arquivar caixa de {caixaArquivando.atendenteNome} em {caixaArquivando.data}?</strong>
+            <p>O caixa vazio saira da lista. Seu registro sera preservado para auditoria.</p>
+            <label className="field-label">Confirme a senha da sua conta
+              <input className="input" type="password" autoComplete="current-password" value={senhaArquivamento} onChange={(event) => setSenhaArquivamento(event.target.value)} required disabled={arquivandoCaixa} />
+            </label>
+            <div className="section-actions">
+              <button className="action-btn action-btn-danger" type="submit" disabled={arquivandoCaixa || !senhaArquivamento}>{arquivandoCaixa ? "Arquivando..." : "Confirmar arquivamento"}</button>
+              <button className="action-btn action-btn-secondary" type="button" disabled={arquivandoCaixa} onClick={() => { setCaixaArquivando(null); setSenhaArquivamento(""); }}>Cancelar</button>
+            </div>
+          </form> : null}
           <div className="scroll-list">
             {caixas.map((caixa) => (
               <div
@@ -1218,6 +1232,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
                     className="mini-btn danger"
                     type="button"
                     onClick={() => excluirCaixa(caixa)}
+                    disabled={arquivandoCaixa}
                   >
                     Excluir
                   </button>

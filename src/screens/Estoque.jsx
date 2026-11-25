@@ -14,7 +14,7 @@ import {
   subscribeGruposProdutos,
   updateGrupoProduto,
 } from "../services/gruposProdutos";
-import { getPdfLogo } from "../utils/pdfLogo";
+import { addPdfHeader, addPdvPdfBranding } from "../utils/pdfLogo";
 import { FiBox } from "react-icons/fi";
 import { Capacitor } from '@capacitor/core';
 import GiroEstoque from '../components/GiroEstoque';
@@ -345,30 +345,18 @@ export default function Estoque({ uid, loja = null, lojas = [] }) {
       import("jspdf-autotable"),
     ]);
     const doc = new jsPDF();
-    try {
-      const logo = await getPdfLogo(loja?.logomarca);
-      if (logo) doc.addImage(logo.dataUrl, logo.format, 14, 10, 22, 22);
-    } catch {
-      // noop
-    }
-
-    doc.setTextColor(24, 33, 47);
-    doc.setFontSize(18);
-    doc.text(title, 42, 18);
-    doc.setFontSize(11);
-    doc.setTextColor(96, 112, 134);
-    doc.text(subtitle, 42, 26);
-    return { doc, autoTable };
+    const headerEnd = await addPdfHeader(doc, { loja, title, lines: [subtitle] });
+    return { doc, autoTable, headerEnd };
   }
 
   async function exportarInventarioPDF() {
-    const { doc, autoTable } = await createBasePdf(
+    const { doc, autoTable, headerEnd } = await createBasePdf(
       "Inventario de Estoque",
       `Produtos cadastrados: ${produtos.length}`
     );
 
     autoTable(doc, {
-      startY: 38,
+      startY: headerEnd,
       head: [["Produto", "Estoque", "Custo", "Venda", "Status"]],
       body: produtos.map((produto) => [
         produto.nome,
@@ -393,17 +381,18 @@ export default function Estoque({ uid, loja = null, lojas = [] }) {
       },
     });
 
+    await addPdvPdfBranding(doc, { showLogo: false });
     doc.save("inventario-estoque.pdf");
   }
 
   async function exportarMovimentacaoPDF() {
-    const { doc, autoTable } = await createBasePdf(
+    const { doc, autoTable, headerEnd } = await createBasePdf(
       "Movimentacao de Estoque",
       "Relatorio operacional do estoque atual"
     );
 
     autoTable(doc, {
-      startY: 38,
+      startY: headerEnd,
       head: [["Produto", "Estoque atual", "Situacao", "Custo", "Valor de venda", "NF"]],
       body: produtos.map((produto) => {
         const estoque = Number(produto.estoque || 0);
@@ -442,6 +431,7 @@ export default function Estoque({ uid, loja = null, lojas = [] }) {
       },
     });
 
+    await addPdvPdfBranding(doc, { showLogo: false });
     doc.save("movimentacao-estoque.pdf");
   }
 
