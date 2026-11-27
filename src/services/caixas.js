@@ -1,5 +1,6 @@
 import {
   collection,
+  documentId,
   doc,
   getDoc,
   getDocs,
@@ -8,6 +9,8 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { podeOperarCaixa } from "../utils/caixaAccess";
+import { isManagementRole } from "../utils/access";
 import { executarOperacao, operacaoPersistente } from "./operacoes";
 
 
@@ -52,7 +55,7 @@ export async function getCaixa(id) {
   return snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
 }
 
-export function subscribeCaixa(id, callback) {
+export function subscribeCaixa(id, callback, onError) {
   if (!id) {
     callback(null);
     return () => {};
@@ -60,6 +63,9 @@ export function subscribeCaixa(id, callback) {
 
   return onSnapshot(doc(db, "caixas", id), (snapshot) => {
     callback(snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null);
+  }, error => {
+    if (onError) onError(error);
+    else console.error("Erro ao consultar caixa:", error);
   });
 }
 
@@ -95,7 +101,7 @@ export function subscribeCaixasAbertos(uid, callback, onError) {
 }
 
 export async function getCaixasAbertos(uid) {
-  const snapshot = await getDocs(query(caixasRef, where("uid", "==", uid)));
+  const snapshot = await getDocs(query(caixasRef, where("uid", "==", uid), where("status", "==", "aberto")));
   return sortByDateAndStatus(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).filter((item) => item.status === "aberto"));
 }
 
@@ -172,4 +178,83 @@ export function subscribeRetiradasDoDia(data, callback, onError) {
       if (typeof onError === "function") onError(error);
     }
   );
+}
+
+// Administrative view: selected opening dates plus every still-open shift.
+// Both queries retain the store scope enforced by Firestore rules.
+export function subscribeCaixasGerencia(uid, inicio, fim, callback, onError) {
+  if (!uid || !inicio || !fim || inicio > fim) {
+    callback([]);
+    return () => {};
+  }
+  let ativo = true;
+  let falhou = false;
+  const grupos = [null, null];
+  const receber = (indice) => (snapshot) => {
+    if (!ativo || falhou) return;
+    grupos[indice] = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+    if (grupos.some(grupo => grupo === null)) return;
+    const unicos = new Map([...grupos[1], ...grupos[0]].map(item => [item.id, item]));
+    callback(sortByDateAndStatus([...unicos.values()].filter(item => item.uid === uid
+      && (item.status === "aberto" || (item.data >= inicio && item.data <= fim)))));
+  };
+  const erro = (error) => {
+    if (!ativo) return;
+    falhou = true;
+    if (onError) onError(error);
+  };
+  const unsubPeriodo = onSnapshot(rangeQuery(uid, inicio, fim), receber(0), erro);
+  const unsubAbertos = onSnapshot(query(caixasRef, where("uid", "==", uid), where("status", "==", "aberto")), receber(1), erro);
+  return () => {
+    ativo = false;
+    unsubPeriodo();
+    unsubAbertos();
+  };
+}
+
+// Read existing registers referenced by movements, even if opened before the range.
+// Scoped queries also handle missing/foreign IDs without granting document access.
+export async function getCaixasVinculados(uid, movimentos, existentes = []) {
+  if (!uid) return [];
+  const caixas = new Map(existentes.filter(item => item.uid === uid).map(item => [item.id, item]));
+  const ids = [...new Set(movimentos.map(item => String(item.caixaId || "").trim()).filter(Boolean))].filter(id => !caixas.has(id));
+  for (let start = 0; start < ids.length; start += 10) {
+    const snapshot = await getDocs(query(caixasRef, where("uid", "==", uid), where(documentId(), "in", ids.slice(start, start + 10))));
+    snapshot.docs.forEach(item => {
+      const caixa = { ...item.data(), id: item.id };
+      if (caixa.uid === uid) caixas.set(caixa.id, caixa);
+    });
+  }
+  return [...caixas.values()];
+}
+
+// Local storage is a cache. An attendant's existing backend session is authoritative.
+export async function recuperarCaixaAtivo(uid, usuario, role, sessao = null) {
+  if (!uid || !usuario?.id) return null;
+  const validar = caixa => caixa?.status === "aberto" && podeOperarCaixa(caixa, uid, usuario, role);
+  const ler = async id => {
+    try { return await getCaixa(id); }
+    catch (error) {
+      if (["permission-denied", "firestore/permission-denied", "not-found"].includes(error?.code)) return null;
+      throw error;
+    }
+  };
+  if (sessao?.id && (!sessao.uid || sessao.uid === uid)) {
+    const salvo = await ler(sessao.id);
+    if (validar(salvo)) return salvo;
+  }
+  // Management must explicitly choose a register; never attach an arbitrary attendant.
+  if (isManagementRole(role)) return null;
+  let lock;
+  try { lock = await getDoc(doc(db, "caixas_ativos", uid + "__" + usuario.id)); }
+  catch (error) {
+    if (!["permission-denied", "firestore/permission-denied"].includes(error?.code)) throw error;
+  }
+  if (lock?.exists() && lock.data().uid === uid && lock.data().caixaId) {
+    const ativo = await ler(lock.data().caixaId);
+    if (validar(ativo)) return ativo;
+  }
+  const encontrados = (await getCaixasAbertos(uid)).filter(validar);
+  if (encontrados.length > 1) throw new Error("Mais de um caixa aberto para este operador. Solicite conferencia da gerencia.");
+  return encontrados[0] || null;
 }

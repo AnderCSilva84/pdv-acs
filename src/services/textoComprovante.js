@@ -4,12 +4,12 @@ const money = (value) => Number(value || 0).toLocaleString('pt-BR', { style: 'cu
 export function quebrarTexto(value, width = WIDTH) {
   return String(value ?? '').replace(/[\r\n\t]+/g, ' ').split(/\s+/).reduce((lines, word) => {
     while (word.length > width) {
-      if (lines.at(-1)) lines.push('');
+      if (lines[lines.length - 1]) lines.push('');
       lines[lines.length - 1] = word.slice(0, width);
       lines.push('');
       word = word.slice(width);
     }
-    const last = lines.at(-1);
+    const last = lines[lines.length - 1];
     if (last && last.length + word.length + 1 > width) lines.push(word);
     else lines[lines.length - 1] = last ? `${last} ${word}` : word;
     return lines;
@@ -18,7 +18,7 @@ export function quebrarTexto(value, width = WIDTH) {
 
 export function montarTextoComprovante({ loja, venda }) {
   const pagamentos = venda.pagamentos?.length ? venda.pagamentos : [{ forma: venda.formaPagamento, valor: venda.total }];
-  const lines = [loja?.nome || 'Gelato Tamandare', loja?.documento, loja?.endereco,
+  const lines = [loja?.nome || 'PDV ACS', loja?.documento, loja?.endereco,
     '-'.repeat(WIDTH), 'COMPROVANTE NAO FISCAL', venda.dataHora,
     `Venda: ${venda.vendaGrupoId || ''}`, `Atendente: ${venda.atendenteNome || ''}`, `Caixa: ${venda.caixaId || ''}`, '-'.repeat(WIDTH)];
   for (const item of venda.itens || []) {
@@ -29,5 +29,5 @@ export function montarTextoComprovante({ loja, venda }) {
   for (const item of pagamentos) lines.push(`${item.forma || ''}: ${money(item.valor)}`);
   if (pagamentos.some((item) => item.forma === 'Dinheiro')) lines.push(`Recebido: ${money(venda.valorRecebido)}`, `Troco: ${money(venda.troco)}`);
   lines.push('-'.repeat(WIDTH), 'Obrigado pela preferencia!');
-  return lines.filter((line) => line !== undefined && line !== null && line !== '').map((line) => quebrarTexto(line)).join('\n');
+  return lines.filter((line) => line !== undefined && line !== null && line !== '').map((line) => quebrarTexto(line)).join('\n') + '\n';
 }

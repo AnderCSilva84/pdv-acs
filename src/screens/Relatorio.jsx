@@ -7,6 +7,7 @@ import {
   fecharCaixa,
   getCaixasAbertos,
   getCaixas,
+  getCaixasVinculados,
   getRetiradas,
 } from "../services/caixas";
 import { getProdutos } from "../services/produtos";
@@ -40,30 +41,30 @@ function formatDateTimeLabel(valor) {
   if (!valor) return "";
 
   if (typeof valor?.toDate === "function") {
-    return valor.toDate().toLocaleString("pt-BR");
+    return valor.toDate().toLocaleString("pt-BR", { timeZone: "America/Fortaleza" });
   }
 
   if (valor instanceof Date) {
-    return valor.toLocaleString("pt-BR");
+    return valor.toLocaleString("pt-BR", { timeZone: "America/Fortaleza" });
   }
 
   const data = new Date(valor);
-  return Number.isNaN(data.getTime()) ? "" : data.toLocaleString("pt-BR");
+  return Number.isNaN(data.getTime()) ? "" : data.toLocaleString("pt-BR", { timeZone: "America/Fortaleza" });
 }
 
 function extractIsoDateFromValue(valor) {
   if (!valor) return "";
 
   if (typeof valor?.toDate === "function") {
-    return valor.toDate().toLocaleDateString("en-CA");
+    return valor.toDate().toLocaleDateString("en-CA", { timeZone: "America/Fortaleza" });
   }
 
   if (valor instanceof Date) {
-    return valor.toLocaleDateString("en-CA");
+    return valor.toLocaleDateString("en-CA", { timeZone: "America/Fortaleza" });
   }
 
   const data = new Date(valor);
-  return Number.isNaN(data.getTime()) ? "" : data.toLocaleDateString("en-CA");
+  return Number.isNaN(data.getTime()) ? "" : data.toLocaleDateString("en-CA", { timeZone: "America/Fortaleza" });
 }
 
 function getCaixaReferenceDate(caixa) {
@@ -80,13 +81,8 @@ function mergeItemsById(items) {
   );
 }
 
-function buildVisibleCaixasForPeriod(caixasPeriodo, caixasAbertos, dataInicio, dataFim) {
-  const caixasAbertosDoPeriodo = (caixasAbertos || []).filter((item) => {
-    const dataAbertura = getCaixaReferenceDate(item);
-    return dataAbertura && dataAbertura >= dataInicio && dataAbertura <= dataFim;
-  });
-
-  return mergeItemsById([...(caixasPeriodo || []), ...caixasAbertosDoPeriodo]);
+function buildVisibleCaixasForPeriod(caixasPeriodo, caixasAbertos) {
+  return mergeItemsById([...(caixasPeriodo || []), ...(caixasAbertos || [])]);
 }
 
 function filterItemsByPeriod(items, dataInicio, dataFim) {
@@ -276,6 +272,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
   const [entradasConsolidadas, setEntradasConsolidadas] = useState([]);
   const [retiradas, setRetiradas] = useState([]);
   const [caixas, setCaixas] = useState([]);
+  const [vinculosPendentes, setVinculosPendentes] = useState(0);
   const [caixaSelecionado, setCaixaSelecionado] = useState(null);
   const [vendaCancelando, setVendaCancelando] = useState(null);
   const [senhaCancelamento, setSenhaCancelamento] = useState("");
@@ -314,26 +311,17 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
           getCaixas(uid, periodoFiltro.inicio, periodoFiltro.fim),
           getCaixasAbertos(uid),
         ]);
-        const caixasData = buildVisibleCaixasForPeriod(
+        const caixasBase = buildVisibleCaixasForPeriod(
           caixasPeriodo,
           caixasAbertos,
           periodoFiltro.inicio,
           periodoFiltro.fim
         );
-        const vendasDosCaixas = await Promise.all(
-          caixasData.map((item) => getVendasPorCaixa(uid, item.id))
-        );
-
+        const caixasData = await getCaixasVinculados(uid, [...vendasData, ...retiradasData], caixasBase);
         if (!ativo || periodoRequestRef.current !== requestId) return;
-
-        const vendasPeriodo = filterItemsByPeriod(
-          mergeItemsById([
-            ...vendasData,
-            ...filterItemsByPeriod(vendasDosCaixas.flat(), periodoFiltro.inicio, periodoFiltro.fim),
-          ]),
-          periodoFiltro.inicio,
-          periodoFiltro.fim
-        );
+        const vendasPeriodo = filterItemsByPeriod(vendasData, periodoFiltro.inicio, periodoFiltro.fim);
+        const idsEncontrados = new Set(caixasData.map(item => item.id));
+        setVinculosPendentes([...vendasData, ...retiradasData].filter(item => !idsEncontrados.has(String(item.caixaId || "").trim())).length);
         const despesasPeriodo = filterItemsByPeriod(despesasData, periodoFiltro.inicio, periodoFiltro.fim);
         const retiradasPeriodo = filterItemsByPeriod(retiradasData, periodoFiltro.inicio, periodoFiltro.fim);
         const entradasPeriodo = filterItemsByPeriod(
@@ -366,6 +354,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
         setEntradasConsolidadas([]);
         setRetiradas([]);
         setCaixas([]);
+        setVinculosPendentes(0);
         setCaixaSelecionado(null);
       } finally {
         if (ativo && periodoRequestRef.current === requestId) {
@@ -388,31 +377,9 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
       if (!uid || !dataHoje) return;
 
       try {
-        const [caixasPeriodo, caixasAbertos, vendasData] = await Promise.all([
-          getCaixas(uid, dataHoje, dataHoje),
-          getCaixasAbertos(uid),
-          getVendas(uid, dataHoje, dataHoje),
-        ]);
-        const caixasVisiveis = buildVisibleCaixasForPeriod(
-          caixasPeriodo,
-          caixasAbertos,
-          dataHoje,
-          dataHoje
-        );
-        const vendasDosCaixas = await Promise.all(
-          caixasVisiveis.map((item) => getVendasPorCaixa(uid, item.id))
-        );
+        const vendasData = await getVendas(uid, dataHoje, dataHoje);
         if (!ativo) return;
-        setVendasHoje(
-          filterItemsByPeriod(
-            mergeItemsById([
-              ...vendasData,
-              ...filterItemsByPeriod(vendasDosCaixas.flat(), dataHoje, dataHoje),
-            ]),
-            dataHoje,
-            dataHoje
-          )
-        );
+        setVendasHoje(filterItemsByPeriod(vendasData, dataHoje, dataHoje));
       } catch (error) {
         console.error("Erro ao carregar vendas de hoje no relatorio:", error);
         if (ativo) setVendasHoje([]);
@@ -1172,6 +1139,7 @@ export default function Relatorio({ uid, dataHoje, accessUser = null, loja = nul
             <div className="section-title">Caixas com movimento no periodo</div>
             <span className="section-subtitle">{caixas.length} caixas no periodo</span>
           </div>
+          {vinculosPendentes > 0 ? <p className="inline-feedback" role="alert">{vinculosPendentes} movimentacao(oes) sem caixa vinculado acessivel neste estabelecimento. Os valores foram preservados; solicite conferencia historica antes de qualquer recuperacao de dados.</p> : null}
           {feedbackArquivamento ? <p className="inline-feedback" role="status">{feedbackArquivamento}</p> : null}
           {caixaArquivando ? <form className="stack-form section-card" onSubmit={confirmarArquivamentoCaixa}>
             <strong>Arquivar caixa de {caixaArquivando.atendenteNome} em {caixaArquivando.data}?</strong>

@@ -44,7 +44,7 @@ export default function Lojas({ lojaAtivaId, onSelectLoja, redeId, onSimulate, c
     try {
       await saveLoja(editandoId || slugLoja(form.nome), {
         ...form,
-        redeId,
+        redeId: import.meta.env.MODE === "universal" ? String(form.redeId || redeId || "") : redeId,
         status: canManageAvailability ? form.status : "ativa",
         ativa: true,
       });

@@ -19,7 +19,7 @@ export const DEFAULT_LOJA = {
   impressaoHabilitada: true,
 };
 
-function normalizeLoja(id, dados = {}) {
+function normalizeLoja(id, dados = {}, universal = import.meta.env.MODE === "universal") {
   const statusPermitidos = ["ativa", "manutencao", "suspensa", "inativa"];
   const statusInformado = String(dados.status || (dados.ativa === false ? "inativa" : "ativa"));
   const status = statusPermitidos.includes(statusInformado) ? statusInformado : "ativa";
@@ -28,12 +28,12 @@ function normalizeLoja(id, dados = {}) {
   const bloqueioEscopo = escoposPermitidos.includes(escopoInformado) ? escopoInformado : "total";
   const nomeInformado = String(dados.nome || dados.nomeFantasia || "").trim();
   const nomeLegado = nomeInformado.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const nome = id === "emporio-cafe" && (!nomeInformado || nomeLegado === "emporio-cafe" || nomeLegado === "emporio cafe")
+  const nome = !universal && id === "emporio-cafe" && (!nomeInformado || nomeLegado === "emporio-cafe" || nomeLegado === "emporio cafe")
     ? "cafe-guajara"
     : nomeInformado;
   const idNormalizado = String(id || "").toLowerCase();
   const nomeNormalizado = nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const redeId = idNormalizado === "tamandare" || idNormalizado === "emporio-cafe" || idNormalizado === "cafe-guajara" || nomeNormalizado === "cafe-guajara" || nomeNormalizado === "emporio cafe"
+  const redeId = universal ? String(dados.redeId || "").trim() : idNormalizado === "tamandare" || idNormalizado === "emporio-cafe" || idNormalizado === "cafe-guajara" || nomeNormalizado === "cafe-guajara" || nomeNormalizado === "emporio cafe"
     ? "emporio"
     : String(dados.redeId || (id === DEFAULT_LOJA_ID ? "gelato" : "")).trim();
   return {
@@ -61,11 +61,11 @@ export function slugLoja(nome) {
     .slice(0, 60);
 }
 
-export function subscribeLojas(redeId, callback) {
+export function subscribeLojas(redeId, callback, universal = import.meta.env.MODE === "universal") {
   return onSnapshot(collection(db, "lojas"), (snapshot) => {
-    const lojas = snapshot.docs.map((item) => normalizeLoja(item.id, item.data()))
+    const lojas = snapshot.docs.map((item) => normalizeLoja(item.id, item.data(), universal))
       .filter((item) => !redeId || item.redeId === redeId || (redeId === "gelato" && item.id === DEFAULT_LOJA_ID) || (redeId === "emporio" && item.id === "emporio-cafe"));
-    if ((!redeId || redeId === "gelato") && !lojas.some((item) => item.id === DEFAULT_LOJA_ID)) lojas.unshift(DEFAULT_LOJA);
+    if (!universal && (!redeId || redeId === "gelato") && !lojas.some((item) => item.id === DEFAULT_LOJA_ID)) lojas.unshift(DEFAULT_LOJA);
     callback(lojas.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")));
   });
 }

@@ -17,7 +17,6 @@ body:not(.pwa-ui) .pdv-quantity-control span { min-width: 20px; text-align: cent
   body:not(.pwa-ui) .pdv-terminal-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   body:not(.pwa-ui) .pdv-terminal-tabs button { border: 1px solid #cbd5e1; border-radius: 10px; background: #fff; color: #172554; font-weight: 700; font-size: 16px; }
   body:not(.pwa-ui) .pdv-terminal-tabs button[aria-pressed="true"] { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
-  body:not(.pwa-ui) .pdv-terminal[data-terminal-panel="produtos"] .pdv-order-panel,
   body:not(.pwa-ui) .pdv-terminal[data-terminal-panel="pedido"] .pdv-main-column { display: none; }
   body:not(.pwa-ui) .pdv-terminal .pdv-catalog-panel, body:not(.pwa-ui) .pdv-terminal .pdv-order-panel { padding: 12px; }
   body:not(.pwa-ui) .pdv-terminal .pdv-catalog-topbar { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
@@ -57,3 +56,83 @@ body:not(.pwa-ui) .pdv-quantity-control span { min-width: 20px; text-align: cent
 }
 
 body:not(.pwa-ui) .pdv-terminal-checkout[hidden] { display: none; }
+
+/* Approved VT-Q2i sales/payment layout. Web/desktop styles stay unchanged. */
+.pdv-terminal-heading, .pdv-carousel-hint { display: none; }
+@media (max-width: 767px) {
+  body:not(.pwa-ui) .pdv-terminal { --pdv-navy: #17365C; --pdv-blue: #3677B5; --pdv-green: #16835D; background: #F8FAFC; color: #17202C; max-width: 100%; overflow-x: clip; }
+  body:not(.pwa-ui) .pdv-terminal-open { padding-bottom: 0; }
+  body:not(.pwa-ui) .pdv-terminal-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px; background: #17365C; color: #FFFFFF; border-radius: 12px; }
+  body:not(.pwa-ui) .pdv-terminal-heading span { display: block; font-size: 12px; }
+  body:not(.pwa-ui) .pdv-terminal-heading h1 { font-size: 21px; line-height: 1.2; margin: 4px 0 0; color: #FFFFFF; }
+  body:not(.pwa-ui) .pdv-terminal-heading-total { text-align: right; flex-shrink: 0; }
+  body:not(.pwa-ui) .pdv-terminal-heading-total strong { font-size: 25px; color: #FFFFFF; }
+  body:not(.pwa-ui) .pdv-terminal-tabs { display: none; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-card { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; box-shadow: none; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-catalog-topbar > .section-header { display: none; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-category-tabs { margin: 10px 0; max-width: 100%; overscroll-behavior-x: contain; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-category-tab.is-active { background: #3677B5; color: #FFFFFF; border-color: #3677B5; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-product-grid { display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; padding: 2px 2px 10px; gap: 10px; max-width: 100%; -webkit-overflow-scrolling: touch; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-product-card { flex: 0 0 145px; scroll-snap-align: start; display: flex; flex-direction: column; align-items: stretch; text-align: left; background: #FFFFFF; border: 1px solid #E2E8F0; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-product-card.is-selected { border-color: #3677B5; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-product-media { height: 70px; display: grid; place-items: center; background: #F8FAFC; border-radius: 8px; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-product-image { max-height: 70px; width: 100%; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-product-copy { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-product-copy small { color: #17365C; font-weight: 700; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-product-copy span { display: none; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-product-add { display: grid; place-items: center; min-height: 42px; background: #17365C; color: #FFFFFF; border-radius: 8px; font-size: 26px; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-carousel-hint { display: block; text-align: center; color: #64748b; font-size: 12px; margin-top: 4px; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-order-panel > .section-header { margin-bottom: 8px; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-order-panel > .section-header .section-subtitle { display: none; }
+  body:not(.pwa-ui) .pdv-terminal[data-terminal-panel="produtos"] .pdv-order-form > .pdv-split-payments,
+  body:not(.pwa-ui) .pdv-terminal[data-terminal-panel="produtos"] .pdv-order-form > .pdv-payment-grid-cash,
+  body:not(.pwa-ui) .pdv-terminal .pdv-order-actions-row,
+  body:not(.pwa-ui) .pdv-terminal .pdv-order-submit-row { display: none; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-cart-total { background: #E2E8F0; color: #17202C; padding: 12px; border-radius: 10px; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-cart-total strong { color: #17365C; font-size: 26px; }
+  body:not(.pwa-ui) .pdv-terminal-checkout { position: sticky; left: auto; right: auto; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); padding: 10px; border: 1px solid #E2E8F0; border-radius: 12px; background: #E2E8F0; box-shadow: none; }
+  body:not(.pwa-ui) .pdv-terminal-checkout .action-btn { background: #16835D; border-color: #16835D; border-radius: 10px; }
+  body:not(.pwa-ui) .pdv-terminal-total { color: #17365C; }
+  body:not(.pwa-ui) .pdv-terminal[data-terminal-panel="pedido"] .pdv-order-panel > .section-header,
+  body:not(.pwa-ui) .pdv-terminal[data-terminal-panel="pedido"] .pdv-cart-table,
+  body:not(.pwa-ui) .pdv-terminal[data-terminal-panel="pedido"] .pdv-cart-total,
+  body:not(.pwa-ui) .pdv-terminal[data-terminal-panel="pedido"] .pdv-order-form > input[type="date"] { display: none; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-split-payments { display: flex; flex-direction: column; gap: 10px; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-payment-value-card { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: #17202C; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-payment-grid-cash { background: #E2E8F0; border-radius: 10px; padding: 10px; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-payment-grid-cash > .pdv-cash-summary:first-child { display: none; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-payment-grid-cash .pdv-cash-summary { background: transparent; padding: 0; border: 0; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-payment-grid-cash strong { color: #16835D; font-size: 25px; }
+  body:not(.pwa-ui) .pdv-terminal input { scroll-margin-block: 100px; font-size: 16px; }
+  body:not(.pwa-ui) .pdv-terminal.pdv-keyboard-open[data-terminal-panel="pedido"] { position: fixed; inset: 0 0 auto; height: var(--pdv-viewport-height, 100dvh); max-height: var(--pdv-viewport-height, 100dvh); z-index: 100; padding: 6px; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; overflow: hidden; }
+  body:not(.pwa-ui) .pdv-keyboard-open[data-terminal-panel="pedido"] .pdv-terminal-heading { flex: 0 0 auto; padding: 8px 10px; }
+  body:not(.pwa-ui) .pdv-keyboard-open[data-terminal-panel="pedido"] .pdv-status-bar { display: none; }
+  body:not(.pwa-ui) .pdv-keyboard-open[data-terminal-panel="pedido"] .pdv-shell { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior-y: contain; }
+  body:not(.pwa-ui) .pdv-keyboard-open[data-terminal-panel="pedido"] .pdv-order-panel { padding: 8px; }
+  body:not(.pwa-ui) .pdv-keyboard-open[data-terminal-panel="pedido"] .pdv-order-form,
+  body:not(.pwa-ui) .pdv-keyboard-open[data-terminal-panel="pedido"] .pdv-split-payments { gap: 6px; }
+  body:not(.pwa-ui) .pdv-keyboard-open[data-terminal-panel="pedido"] .pdv-split-payments > button,
+  body:not(.pwa-ui) .pdv-keyboard-open[data-terminal-panel="pedido"] .pdv-split-payments > small,
+  body:not(.pwa-ui) .pdv-keyboard-open[data-terminal-panel="pedido"] .pdv-payment-grid > button { display: none; }
+  body:not(.pwa-ui) .pdv-keyboard-open[data-terminal-panel="pedido"] .pdv-terminal-checkout { flex: 0 0 auto; position: static; grid-template-columns: minmax(0, 1fr); padding: 6px; }
+  body:not(.pwa-ui) .pdv-keyboard-open[data-terminal-panel="pedido"] .pdv-terminal-checkout > .pdv-terminal-total { display: none; }
+}
+
+@media (max-width: 767px) {
+  body:not(.pwa-ui) .pdv-terminal-open { display: flex; flex-direction: column; }
+  body:not(.pwa-ui) .pdv-terminal-heading { order: -2; }
+  body:not(.pwa-ui) .pdv-terminal .pdv-shell { order: 0; }
+  body:not(.pwa-ui) .pdv-terminal-checkout { order: 1; }
+  body:not(.pwa-ui) .pdv-terminal-open > .pdv-status-bar { order: 2; }
+  body:not(.pwa-ui) .pdv-terminal-open > .section-card:not(.pdv-status-bar) { order: 3; }
+  body:not(.pwa-ui) .pdv-terminal.pdv-keyboard-open[data-terminal-panel="produtos"] { padding-bottom: 100px; }
+  body:not(.pwa-ui) .pdv-keyboard-open[data-terminal-panel="produtos"] .pdv-terminal-checkout { position: fixed; left: 0; right: 0; bottom: var(--pdv-keyboard-inset, 0px); }
+}
+
+@media (max-width: 767px) {
+  body:not(.pwa-ui) .pdv-keyboard-open[data-terminal-panel="pedido"] .pdv-panel-input { min-height: 42px; height: 42px; padding: 8px; }
+  body:not(.pwa-ui) .pdv-keyboard-open[data-terminal-panel="pedido"] .pdv-payment-value-card { gap: 2px; font-size: 12px; }
+  body:not(.pwa-ui) .pdv-keyboard-open[data-terminal-panel="pedido"] .pdv-payment-grid-cash { padding: 6px 10px; }
+  body:not(.pwa-ui) .pdv-keyboard-open[data-terminal-panel="pedido"] .pdv-payment-grid-cash strong { font-size: 22px; }
+  body:not(.pwa-ui) .pdv-keyboard-open[data-terminal-panel="pedido"] .pdv-terminal-heading h1 { font-size: 18px; margin: 0; }
+}

@@ -3,11 +3,16 @@ import { useEffect, useMemo, useState } from "react";
 import {
   deleteCaixa,
   fecharCaixa,
-  getCaixas,
-  subscribeCaixasAbertos,
+  subscribeCaixasGerencia,
 } from "../services/caixas";
 import { subscribeProdutos } from "../services/produtos";
 import { FiHome } from "react-icons/fi";
+
+function dataFortaleza(agora = new Date()) {
+  const partes = new Intl.DateTimeFormat("en", { timeZone: "America/Fortaleza", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(agora);
+  const valor = tipo => partes.find(parte => parte.type === tipo).value;
+  return valor("year") + "-" + valor("month") + "-" + valor("day");
+}
 
 function formatMoney(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", {
@@ -27,48 +32,66 @@ function formatDateTimeLabel(valor) {
   if (!valor) return "";
 
   if (typeof valor?.toDate === "function") {
-    return valor.toDate().toLocaleString("pt-BR");
+    return valor.toDate().toLocaleString("pt-BR", { timeZone: "America/Fortaleza" });
   }
 
   if (valor instanceof Date) {
-    return valor.toLocaleString("pt-BR");
+    return valor.toLocaleString("pt-BR", { timeZone: "America/Fortaleza" });
   }
 
   const data = new Date(valor);
-  return Number.isNaN(data.getTime()) ? "" : data.toLocaleString("pt-BR");
+  return Number.isNaN(data.getTime()) ? "" : data.toLocaleString("pt-BR", { timeZone: "America/Fortaleza" });
 }
 
-export default function Gerencia({ uid, dataHoje, onNavigate }) {
+export default function Gerencia({ uid, loja, onNavigate }) {
   const [produtos, setProdutos] = useState([]);
   const [caixasHoje, setCaixasHoje] = useState([]);
-  const [caixasAbertosAtuais, setCaixasAbertosAtuais] = useState([]);
+  const [periodo, setPeriodo] = useState(() => ({ inicio: dataFortaleza(), fim: dataFortaleza() }));
+  const [filtroPeriodo, setFiltroPeriodo] = useState(periodo);
+  const [carregandoCaixas, setCarregandoCaixas] = useState(true);
+  const [erroConsulta, setErroConsulta] = useState("");
+  const [erroPeriodo, setErroPeriodo] = useState("");
   const [acaoCaixa, setAcaoCaixa] = useState(null);
   const [senhaGerencia, setSenhaGerencia] = useState("");
   const [feedbackAcaoCaixa, setFeedbackAcaoCaixa] = useState("");
   const [salvandoAcaoCaixa, setSalvandoAcaoCaixa] = useState(false);
 
   useEffect(() => {
-    if (!uid || !dataHoje) return;
+    if (!uid) return;
+    return subscribeProdutos(uid, setProdutos);
+  }, [uid]);
 
-    const unsubProdutos = subscribeProdutos(uid, setProdutos);
-    const unsubCaixasAbertos = subscribeCaixasAbertos(uid, setCaixasAbertosAtuais);
-
-    let ativo = true;
-    getCaixas(uid, dataHoje, dataHoje).then((items) => {
-      if (ativo) setCaixasHoje(items);
+  useEffect(() => {
+    return subscribeCaixasGerencia(uid, periodo.inicio, periodo.fim, items => {
+      setCaixasHoje(items);
+      setCarregandoCaixas(false);
+    }, error => {
+      setCaixasHoje([]);
+      setCarregandoCaixas(false);
+      setErroConsulta(error?.code === "permission-denied"
+        ? "Sem permissao para consultar os caixas deste estabelecimento."
+        : "Nao foi possivel atualizar os caixas. Confira a conexao e os indices do Firestore e recarregue a pagina.");
     });
+  }, [uid, periodo]);
 
-    return () => {
-      ativo = false;
-      unsubProdutos();
-      unsubCaixasAbertos();
-    };
-  }, [uid, dataHoje]);
-
+  function aplicarPeriodo(event) {
+    event.preventDefault();
+    if (!filtroPeriodo.inicio || !filtroPeriodo.fim || filtroPeriodo.inicio > filtroPeriodo.fim) {
+      setErroPeriodo("Informe um periodo valido.");
+      return;
+    }
+    setErroPeriodo("");
+    setCaixasHoje([]);
+    setAcaoCaixa(null);
+    setSenhaGerencia("");
+    setErroConsulta("");
+    setCarregandoCaixas(true);
+    setPeriodo({ ...filtroPeriodo });
+  }
 
   const caixasAbertos = useMemo(
-    () => caixasAbertosAtuais.filter((item) => item.status === "aberto"),
-    [caixasAbertosAtuais]
+    () => caixasHoje.filter((item) => item.status === "aberto"),
+    [caixasHoje]
   );
   const estoqueBaixo = useMemo(
     () =>
@@ -161,7 +184,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate }) {
             Use esta tela para acompanhar alertas, caixas abertos e acessos rapidos. Os detalhes financeiros ficam no Fluxo e no Relatorio.
           </p>
         </div>
-        <span className="screen-badge">{formatDateLabel(dataHoje)}</span>
+        <span className="screen-badge">{loja?.nome || uid} · {formatDateLabel(dataFortaleza())} (Fortaleza)</span>
       </div>
 
       <div className="stats-grid gerencia-stats-grid gerencia-stats-grid-compact">
@@ -241,10 +264,18 @@ export default function Gerencia({ uid, dataHoje, onNavigate }) {
 
         <div className="section-card gerencia-focus-card">
           <div className="section-header">
-            <div className="section-title">Caixas do dia</div>
-            <span className="section-subtitle">{caixasDoDia.length} registros</span>
+            <div className="section-title">Caixas do periodo e turnos ainda abertos</div>
+            <span className="section-subtitle">{carregandoCaixas ? "Atualizando..." : `${caixasDoDia.length} registros`}</span>
           </div>
-          <div className="scroll-list">
+          <form className="section-actions" onSubmit={aplicarPeriodo}>
+            <label>De <input className="input" type="date" required value={filtroPeriodo.inicio} onChange={event => setFiltroPeriodo(prev => ({ ...prev, inicio: event.target.value }))} /></label>
+            <label>Ate <input className="input" type="date" required value={filtroPeriodo.fim} onChange={event => setFiltroPeriodo(prev => ({ ...prev, fim: event.target.value }))} /></label>
+            <button className="action-btn action-btn-primary" type="submit">Consultar</button>
+          </form>
+          <p className="section-subtitle">{formatDateLabel(periodo.inicio)} a {formatDateLabel(periodo.fim)} (data de abertura). Inclui turnos ainda abertos fora do periodo. Horarios de Fortaleza.</p>
+          {erroPeriodo ? <p className="inline-feedback" role="alert">{erroPeriodo}</p> : null}
+          {erroConsulta ? <p className="inline-feedback" role="alert">{erroConsulta}</p> : null}
+          <div className="scroll-list" aria-busy={carregandoCaixas}>
             {caixasDoDia.map((caixa) => (
               <div className="list-row" key={caixa.id}>
                 <div>
@@ -252,6 +283,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate }) {
                   <small>
                     Fundo <span className="positive">{formatMoney(caixa.fundoCaixa || 0)}</span> • {formatDateLabel(caixa.data)}
                   </small>
+                  {caixa.status === "aberto" && (caixa.data < periodo.inicio || caixa.data > periodo.fim) ? <small>Turno ainda aberto fora do periodo selecionado</small> : null}
                   <small>Abertura: {formatDateTimeLabel(caixa.abertoEm) || "Nao disponivel"}</small>
                   <small>
                     Fechamento: {caixa.status === "fechado" ? formatDateTimeLabel(caixa.fechadoEm) || "Nao disponivel" : "Em aberto"}
@@ -283,7 +315,7 @@ export default function Gerencia({ uid, dataHoje, onNavigate }) {
                 </div>
               </div>
             ))}
-            {!caixasDoDia.length && <p className="empty-state">Nenhum caixa registrado no momento.</p>}
+            {!carregandoCaixas && !erroConsulta && !caixasDoDia.length && <p className="empty-state">Nenhum caixa no periodo ou turno ainda aberto neste estabelecimento.</p>}
           </div>
         </div>
       </div>

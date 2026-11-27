@@ -12,7 +12,7 @@
     "build:gelato": "vite build --mode gelato",
     "build:cafe-guajara": "vite build --mode cafe-guajara",
     "build:lojas": "npm run build:gelato && npm run build:cafe-guajara",
-    "build:android": "vite build --mode gelato --outDir dist/android-gelato",
+    "build:android": "vite build --mode universal --outDir dist/android-universal",
     "android:sync": "npm run build:android && npx cap sync android",
     "android:apk": "npm run android:sync && cd android && gradlew.bat assembleDebug",
     "android:open": "npx cap open android",
