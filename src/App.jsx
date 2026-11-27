@@ -1,3 +1,4 @@
+import { addPdvPdfBranding, addPdfHeader } from "./utils/pdfLogo";
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { Capacitor } from '@capacitor/core';
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
@@ -32,10 +33,11 @@ const TelaSuporte = lazy(() => import("./screens/Suporte"));
 const TelaLojas = lazy(() => import("./screens/Lojas"));
 const TelaRede = lazy(() => import("./screens/Rede"));
 
+const UNIVERSAL = import.meta.env.MODE === "universal" || !String(import.meta.env.VITE_REDE_ID || "").trim();
 const LAST_LOGIN_EMAIL_KEY = "gelato-painel-last-email";
-const DEPLOY_REDE_ID = String(import.meta.env.VITE_REDE_ID || "").trim();
+const DEPLOY_REDE_ID = UNIVERSAL ? "" : String(import.meta.env.VITE_REDE_ID || "").trim();
 const IS_CAFE_GUAJARA = DEPLOY_REDE_ID === "emporio";
-const DEPLOY_LOJA_INICIAL_ID = String(import.meta.env.VITE_LOJA_INICIAL_ID || "").trim();
+const DEPLOY_LOJA_INICIAL_ID = UNIVERSAL ? "" : String(import.meta.env.VITE_LOJA_INICIAL_ID || "").trim();
 const DEPLOY_LOJA_FALLBACK = DEPLOY_REDE_ID === "emporio"
   ? { ...DEFAULT_LOJA, id: "emporio-cafe", nome: "cafe-guajara", nomeFantasia: "cafe-guajara", redeId: "emporio", logomarca: "" }
   : DEFAULT_LOJA;
@@ -106,7 +108,7 @@ const ClockIcon = (
 const SystemFooter = (
   <footer className="system-footer">
     <div className="system-footer-line">Desenvolvido por Anderson C Silva</div>
-    <div className="system-footer-line">ACS Informática</div>
+    <div className="system-footer-line">ACS Tecnologia</div>
   </footer>
 );
 
@@ -163,6 +165,7 @@ export default function App() {
     email: readLastLoginEmail(),
     senha: "",
   }));
+  const [loginLojaId, setLoginLojaId] = useState("");
   const [loginRole, setLoginRole] = useState("atendente");
   const [loginLoading, setLoginLoading] = useState(false);
   const [bootstrapForm, setBootstrapForm] = useState({
@@ -189,29 +192,40 @@ export default function App() {
   const [currentDate, setCurrentDate] = useState(() => hojeISO());
   const [maintenanceTapCount, setMaintenanceTapCount] = useState(0);
   const [maintenanceAccessUnlocked, setMaintenanceAccessUnlocked] = useState(false);
-  const [lojas, setLojas] = useState([DEPLOY_LOJA_FALLBACK]);
-  const [lojaAtivaId, setLojaAtivaId] = useState(() => window.localStorage.getItem(`acs-loja-ativa-${DEPLOY_REDE_ID || "acs"}`) || DEPLOY_LOJA_INICIAL_ID || DEFAULT_LOJA_ID);
+  const [lojas, setLojas] = useState(UNIVERSAL ? [] : [DEPLOY_LOJA_FALLBACK]);
+  const [lojaAtivaId, setLojaAtivaId] = useState(() => UNIVERSAL ? "" : window.localStorage.getItem(`acs-loja-ativa-${DEPLOY_REDE_ID || "acs"}`) || DEPLOY_LOJA_INICIAL_ID || DEFAULT_LOJA_ID);
   const [simulation, setSimulation] = useState(null);
 
   const navigate = useNavigate();
   const location = useLocation();
 
   useEffect(() => {
-    return subscribeLojas(DEPLOY_REDE_ID, setLojas);
+    return subscribeLojas(DEPLOY_REDE_ID, setLojas, UNIVERSAL);
   }, []);
 
   useEffect(() => {
-    if (!lojas.length || lojas.some((item) => item.id === lojaAtivaId)) return;
+    if (UNIVERSAL || !lojas.length || lojas.some((item) => item.id === lojaAtivaId)) return;
     const lojaCadastrada = lojas.find((item) => item.id === DEPLOY_LOJA_INICIAL_ID) || lojas[0];
     setLojaAtivaId(lojaCadastrada.id);
     window.localStorage.setItem(`acs-loja-ativa-${DEPLOY_REDE_ID || "acs"}`, lojaCadastrada.id);
   }, [lojaAtivaId, lojas]);
 
   const lojaAtiva = useMemo(
-    () => lojas.find((item) => item.id === lojaAtivaId) || { ...DEPLOY_LOJA_FALLBACK, id: lojaAtivaId },
+    () => lojas.find((item) => item.id === lojaAtivaId) || (UNIVERSAL ? { id: "", nome: "", status: "ativa" } : { ...DEPLOY_LOJA_FALLBACK, id: lojaAtivaId }),
     [lojaAtivaId, lojas]
   );
-  const operationalUid = lojaAtiva.id;
+  const lojasAutorizadas = useMemo(() => !UNIVERSAL ? lojas : lojas.filter((loja) =>
+    panelAccess?.ativo === true && loja.status === "ativa" && (isSuperAdminRole(panelAccess.role)
+      || panelAccess.lojaId === loja.id || (panelAccess.lojaIds || []).includes(loja.id))), [lojas, panelAccess]);
+  const contextoAutorizado = !UNIVERSAL || Boolean(authUser && panelAccess?.id === authUser.uid
+    && lojasAutorizadas.some((loja) => loja.id === lojaAtivaId));
+  const operationalUid = contextoAutorizado ? lojaAtiva.id : "";
+
+  useEffect(() => {
+    if (!UNIVERSAL) return;
+    if (lojasAutorizadas.length === 1) setLojaAtivaId(lojasAutorizadas[0].id);
+    else if (!lojasAutorizadas.some((loja) => loja.id === lojaAtivaId)) setLojaAtivaId("");
+  }, [lojasAutorizadas, lojaAtivaId]);
 
   useEffect(() => {
     document.body.classList.toggle("theme-cafe-guajara", IS_CAFE_GUAJARA);
@@ -222,10 +236,15 @@ export default function App() {
   useEffect(() => {
     document.title = lojaAtiva.nome ? `PDV ACS | ${lojaAtiva.nome}` : "PDV ACS";
     const favicon = document.querySelector('link[rel="icon"]');
-    if (favicon) favicon.href = "/branding/pdv-acs-app-icon.png";
+    if (favicon) favicon.href = "/branding/pdv-acs-install-icon.png";
   }, [lojaAtiva.logomarca, lojaAtiva.nome]);
 
   function selecionarLoja(id) {
+    if (UNIVERSAL && !lojasAutorizadas.some((loja) => loja.id === id)) return;
+    setAtendentes([]);
+    setLancamentos([]);
+    setTodosLancamentos([]);
+    setSimulation(null);
     setLojaAtivaId(id);
     window.localStorage.setItem(`acs-loja-ativa-${DEPLOY_REDE_ID || "acs"}`, id);
     setTela("pdv");
@@ -295,16 +314,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (UNIVERSAL && !operationalUid) return;
     const unsub = escutarLancamentosMes(operationalUid, mesSelecionado, setLancamentos);
     return () => unsub && unsub();
   }, [authUser?.uid, operationalUid, mesSelecionado]);
 
   useEffect(() => {
+    if (UNIVERSAL && !operationalUid) return;
     const unsub = escutarTodosLancamentos(operationalUid, setTodosLancamentos);
     return () => unsub && unsub();
   }, [authUser?.uid, operationalUid]);
 
   useEffect(() => {
+    if (UNIVERSAL && !operationalUid) return;
     const unsub = subscribeAtendentes(operationalUid, (items) => {
       setAtendentes(items);
     });
@@ -313,6 +335,9 @@ export default function App() {
 
   useEffect(() => {
     const unsub = observeAuth((nextUser) => {
+      setPanelAccess(null);
+      setAtendentes([]);
+      if (UNIVERSAL) setLojaAtivaId("");
       setAuthUser(nextUser);
       setAuthLoaded(true);
     });
@@ -354,7 +379,7 @@ export default function App() {
   const effectiveAccessUser = simulation || accessUser;
   const podeAcessarEstoque = isManagementRole(accessRole)
     || Boolean(effectiveAccessUser?.podeGerenciarProdutos || panelAccess?.podeGerenciarProdutos);
-  const painelLiberado = Boolean(authUser && panelAccess && panelAccess.ativo === true && accessUser && accessUser.ativo !== false) || forceScreens;
+  const painelLiberado = Boolean(contextoAutorizado && authUser && panelAccess && panelAccess.ativo === true && accessUser && accessUser.ativo !== false) || forceScreens;
   const unitUnavailable = lojaAtiva.status && lojaAtiva.status !== "ativa";
   const maintenanceModeEnabled = unitUnavailable;
   const maintenanceScope = ["total", "adm", "pdv"].includes(lojaAtiva.bloqueioEscopo)
@@ -539,11 +564,11 @@ export default function App() {
           <aside className={`sidebar ${isTabletLandscape ? "sidebar-tablet-drawer" : ""} ${sidebarOpen ? "is-open" : ""}`}>
             <button className="mobile-sidebar-close" type="button" aria-label="Fechar menu" onClick={() => setSidebarOpen(false)}><FiX /></button>
             <div className="sidebar-brand pdv-system-brand">
-              <img
+              <a href="https://acstech.dev.br/" target="_blank" rel="noopener noreferrer" aria-label="PDV ACS - ACS Tecnologia"><img
                 className="sidebar-logo"
                 src="/branding/pdv-acs-horizontal-transparent.png"
                 alt="PDV ACS — Gestão e Vendas"
-              />
+              /></a>
               <div className="sidebar-title">{lojaAtiva.nome}</div>
               <div className="sidebar-subtitle">PDV ACS · Gestão e Vendas</div>
             </div>
@@ -669,9 +694,9 @@ export default function App() {
             <button className="topbar-menu-btn" type="button" aria-label="Abrir menu" onClick={() => setSidebarOpen((prev) => !prev)}><FiMenu /></button>
             <div className="topbar-greeting"><strong>Ola, {effectiveAccessUser?.nome || "Usuario"}! 👋</strong><span>Bem-vindo ao PDV ACS</span></div>
             <div className="topbar-actions">
-              {isManagementRole(accessRole) && lojas.length > 1 ? (
+              {(UNIVERSAL ? lojasAutorizadas.length > 1 : isManagementRole(accessRole) && lojas.length > 1) ? (
                 <select className="input select topbar-store-select" value={lojaAtivaId} onChange={(event) => selecionarLoja(event.target.value)} aria-label="Escolher unidade">
-                  {lojas.filter((item) => isSuperAdminRole(accessRole) || item.status === "ativa").map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}
+                  {(UNIVERSAL ? lojasAutorizadas : lojas.filter((item) => isSuperAdminRole(accessRole) || item.status === "ativa")).map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}
                 </select>
               ) : null}
               <span className="topbar-date"><FiCalendar /> {formatarDataBR(currentDate)}</span><span className={`topbar-avatar is-${effectiveAccessUser?.avatarTipo || "masculino"}`}>{effectiveAccessUser?.fotoPerfil ? <img src={effectiveAccessUser.fotoPerfil} alt={effectiveAccessUser.nome} /> : <FiUser />}</span>
@@ -689,7 +714,7 @@ export default function App() {
               </div>
             ) : telaAtiva === "pdv" && painelLiberado ? (
               <Suspense fallback={<div className="section-card">Carregando tela...</div>}>
-                <TelaCaixa
+                <TelaCaixa key={`${authUser?.uid}:${operationalUid}`}
                   uid={operationalUid}
                   dataHoje={currentDate}
                   accessRole={isManagementRole(accessRole) ? accessRole : "atendente"}
@@ -701,7 +726,8 @@ export default function App() {
             ) : gerencialLiberado ? (
               <Suspense fallback={<div className="section-card">Carregando tela...</div>}>
                 {telaAtiva === "gerencia" && (
-                  <TelaGerencia
+                  <TelaGerencia key={operationalUid}
+                    loja={lojaAtiva}
                     uid={operationalUid}
                     dataHoje={currentDate}
                     onNavigate={handleSelectTela}
@@ -709,10 +735,10 @@ export default function App() {
                   />
                 )}
                 {telaAtiva === "fluxo" && <TelaFluxoCaixa uid={operationalUid} dataHoje={currentDate} loja={lojaAtiva} />}
-                {telaAtiva === "estoque" && <TelaEstoque uid={operationalUid} loja={lojaAtiva} lojas={lojas} />}
-                {telaAtiva === "atendentes" && <TelaAtendentes uid={operationalUid} accessUser={effectiveAccessUser} lojas={lojas} />}
+                {telaAtiva === "estoque" && <TelaEstoque uid={operationalUid} loja={lojaAtiva} lojas={UNIVERSAL ? lojasAutorizadas : lojas} />}
+                {telaAtiva === "atendentes" && <TelaAtendentes uid={operationalUid} accessUser={effectiveAccessUser} lojas={UNIVERSAL ? lojasAutorizadas : lojas} />}
                 {telaAtiva === "lojas" && <TelaLojas lojaAtivaId={lojaAtivaId} onSelectLoja={selecionarLoja} redeId={DEPLOY_REDE_ID} onSimulate={iniciarSimulacao} canManageAvailability={isSuperAdminRole(panelAccess?.role) && !simulation} />}
-                {telaAtiva === "rede" && <TelaRede lojas={lojas} />}
+                {telaAtiva === "rede" && <TelaRede lojas={UNIVERSAL ? lojasAutorizadas : lojas} />}
                 {telaAtiva === "relatorio" && (
                   <TelaRelatorio
                     uid={operationalUid}
@@ -867,7 +893,7 @@ export default function App() {
   }
 
   function exportarPDF() {
-    import("jspdf").then(({ default: jsPDF }) => {
+    import("jspdf").then(async ({ default: jsPDF }) => {
       const doc = new jsPDF();
       const itensPDF = lancamentosOrdenados;
       const totalEntradas = lancamentosFiltrados
@@ -878,22 +904,10 @@ export default function App() {
         .reduce((acc, l) => acc + Number(l.valor), 0);
       const totalFinal = totalEntradas - totalSaidas;
 
-      let y = 20;
-
-      doc.setFontSize(16);
-      doc.setTextColor(20, 20, 20);
-      doc.text("GELATO TAMANDARE", 14, y);
-
-      y += 8;
-      doc.setFontSize(11);
-      doc.setTextColor(80, 80, 80);
-      const periodoTexto =
-        buscaDataAtiva && dataInicio && dataFim
-          ? `Periodo: ${formatarDataBR(dataInicio)} ate ${formatarDataBR(dataFim)}`
-          : `Periodo: Mes ${mesSelecionado}`;
-      doc.text(periodoTexto, 14, y);
-
-      y += 10;
+      const periodoTexto = buscaDataAtiva && dataInicio && dataFim
+        ? `Periodo: ${formatarDataBR(dataInicio)} ate ${formatarDataBR(dataFim)}`
+        : `Periodo: Mes ${mesSelecionado}`;
+      let y = await addPdfHeader(doc, { loja: lojaAtiva, title: "Extrato financeiro", lines: [periodoTexto] });
       doc.setFontSize(10);
       doc.setTextColor(90, 90, 90);
       doc.text("Data", 14, y);
@@ -970,6 +984,7 @@ export default function App() {
       doc.text("TOTAL FINAL:", 14, y);
       doc.text(totalFinal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), 180, y, { align: "right" });
 
+      await addPdvPdfBranding(doc, { showLogo: false });
       doc.save(`extrato-${mesSelecionado}.pdf`);
     });
   }
@@ -988,9 +1003,11 @@ export default function App() {
     try {
       setLoginLoading(true);
       const loginPorEmail = identificacao.includes("@");
+      const unidadeLogin = UNIVERSAL ? (loginLojaId || (lojas.filter(item => item.status === "ativa").length === 1 ? lojas.find(item => item.status === "ativa").id : "")) : operationalUid;
+      if (!loginPorEmail && !unidadeLogin) throw new Error("Selecione o estabelecimento para entrar com usuario.");
       const email = loginPorEmail
         ? identificacao.toLowerCase()
-        : await resolverEmailAtendente(operationalUid, identificacao);
+        : await resolverEmailAtendente(unidadeLogin, identificacao);
       const credencial = await loginPainel(email, senha);
       const acesso = await getPanelAccess(credencial.user.uid);
 
@@ -1002,11 +1019,11 @@ export default function App() {
         await logoutPainel();
         throw new Error("Acesso nao autorizado.");
       }
-      if (!loginDeManutencao && normalizeRole(acesso.role) !== normalizeRole(loginRole)) {
+      if (!UNIVERSAL && !loginDeManutencao && normalizeRole(acesso.role) !== normalizeRole(loginRole)) {
         await logoutPainel();
         throw new Error(`Este usuario esta cadastrado como ${getRoleLabel(acesso.role)}.`);
       }
-      if (!isSuperAdminRole(acesso.role)) {
+      if (!UNIVERSAL && !isSuperAdminRole(acesso.role)) {
         const lojasPermitidas = Array.isArray(acesso.lojaIds) ? acesso.lojaIds.map(String) : [];
         if (String(acesso.lojaId || "") !== operationalUid && !lojasPermitidas.includes(operationalUid)) {
           await logoutPainel();
@@ -1020,7 +1037,7 @@ export default function App() {
       setTela(loginPorEmail ? "gerencia" : "pdv");
     } catch (error) {
       console.error(error);
-      setAccessError(error instanceof Error && error.message
+      setAccessError(UNIVERSAL && String(error?.code || "").startsWith("auth/") ? "Usuario ou senha invalidos. Confira tambem o estabelecimento." : error instanceof Error && error.message
         ? error.message
         : "Nao foi possivel entrar. Verifique os dados informados.");
     } finally {
@@ -1037,18 +1054,18 @@ export default function App() {
 
   function renderLoginScreen() {
     const lojasLogin = lojas.filter((loja) => loja.status !== "inativa");
-    const loginPorNome = loginRole === "atendente";
+    const loginPorNome = !UNIVERSAL && loginRole === "atendente";
 
     return (
       <main className="access-login-screen">
         <section className="access-login-card">
           <div className="access-login-heading">
-            <img className="pdv-login-logo" src="/branding/pdv-acs-horizontal-transparent.png" alt="PDV ACS — Gestão e Vendas" />
+            <a href="https://acstech.dev.br/" target="_blank" rel="noopener noreferrer" aria-label="PDV ACS - ACS Tecnologia"><img className="pdv-login-logo" src="/branding/pdv-acs-horizontal-transparent.png" alt="PDV ACS — Gestão e Vendas" /></a>
             <h1>Bem-vindo</h1>
-            <p>Escolha a unidade e o seu perfil para acessar.</p>
+            <p>{UNIVERSAL ? "Entre com seu usuario ou e-mail e senha." : "Escolha a unidade e o seu perfil para acessar."}</p>
           </div>
 
-          <div className="access-brand-grid" aria-label="Escolha a unidade">
+          {!UNIVERSAL && <div className="access-brand-grid" aria-label="Escolha a unidade">
             {lojasLogin.map((loja) => {
               const isAcai = loja.id === "sorveteria-e-acai";
               return (
@@ -1068,7 +1085,8 @@ export default function App() {
             })}
           </div>
 
-          <div className="access-role-picker" aria-label="Escolha o perfil">
+          }
+          {!UNIVERSAL && <div className="access-role-picker" aria-label="Escolha o perfil">
             {[
               ["atendente", "Atendente"],
               ["gerencia", "Gerência"],
@@ -1089,19 +1107,27 @@ export default function App() {
             ))}
           </div>
 
+          }
           <form className="access-login-form" onSubmit={entrarNoPainel}>
             <label>
-              <span>{loginPorNome ? "Nome do atendente" : "E-mail de acesso"}</span>
+              <span>{UNIVERSAL ? "Usuário ou e-mail" : loginPorNome ? "Nome do atendente" : "E-mail de acesso"}</span>
               <input
                 className="input"
-                type={loginPorNome ? "text" : "email"}
+                type={UNIVERSAL || loginPorNome ? "text" : "email"}
                 value={accessForm.email}
                 onChange={(e) => setAccessForm((prev) => ({ ...prev, email: e.target.value }))}
-                placeholder={loginPorNome ? "Ex.: Leticia Leal" : "seuemail@exemplo.com"}
+                placeholder={UNIVERSAL ? "Seu usuário ou e-mail" : loginPorNome ? "Ex.: Leticia Leal" : "seuemail@exemplo.com"}
                 autoComplete="username"
                 autoFocus
               />
             </label>
+            {UNIVERSAL && accessForm.email && !accessForm.email.includes("@") ? <label>
+              <span>Estabelecimento do usuário</span>
+              <select className="input select" value={loginLojaId || (lojasLogin.filter(item => item.status === "ativa").length === 1 ? lojasLogin.find(item => item.status === "ativa").id : "")} onChange={event => setLoginLojaId(event.target.value)}>
+                <option value="">Selecione para localizar seu usuário</option>
+                {lojasLogin.filter(item => item.status === "ativa").map(item => <option key={item.id} value={item.id}>{item.nome}</option>)}
+              </select>
+            </label> : null}
             <label>
               <span>Senha</span>
               <input
@@ -1114,7 +1140,7 @@ export default function App() {
               />
             </label>
             <button className="access-login-submit" type="submit" disabled={loginLoading}>
-              {loginLoading ? "Entrando..." : `Entrar como ${getRoleLabel(loginRole)}`}
+              {loginLoading ? "Entrando..." : UNIVERSAL ? "Entrar" : `Entrar como ${getRoleLabel(loginRole)}`}
             </button>
             {accessError ? <p className="access-login-feedback">{accessError}</p> : null}
           </form>
@@ -1252,12 +1278,21 @@ export default function App() {
     </div>
   );
 
+  if (UNIVERSAL && authUser && panelAccess?.id === authUser.uid && panelAccess.ativo === true && !contextoAutorizado) {
+    return <main className="access-login-screen"><section className="access-login-card">
+      <img className="pdv-login-logo" src="/branding/pdv-acs-horizontal-transparent.png" alt="PDV ACS" />
+      <h1>Selecione o estabelecimento</h1>
+      {lojasAutorizadas.length ? lojasAutorizadas.map((loja) => <button className="access-login-submit" type="button" key={loja.id} onClick={() => selecionarLoja(loja.id)}>{loja.nome}</button>) : <p>Nenhum estabelecimento ativo autorizado. Consulte o administrador.</p>}
+      <button className="action-btn" type="button" onClick={sairDoPainel}>Sair</button>
+    </section></main>;
+  }
+
   if (authLoaded && !painelLiberado && !shouldShowBootstrap && !forceScreens) {
     return renderLoginScreen();
   }
 
   return (
-    <div className={`app-shell ${simulation ? "simulation-readonly" : ""}`}>
+    <div key={UNIVERSAL ? `${authUser?.uid}:${operationalUid}` : "app"} className={`app-shell ${simulation ? "simulation-readonly" : ""}`}>
       {simulation ? <div className="simulation-banner"><span>Simulacao somente leitura · {simulation.nome} · {simulation.role} · {simulation.lojaNome}</span><button type="button" onClick={() => setSimulation(null)}>Encerrar simulacao</button></div> : null}
       {maintenanceScreenLocked ? renderMaintenanceLockScreen() : null}
       {!maintenanceScreenLocked && isTabletPortrait ? (

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FiTrendingUp } from "react-icons/fi";
-import { getPdfLogo } from "../utils/pdfLogo";
+import { addPdfHeader, addPdvPdfBranding } from "../utils/pdfLogo";
 import { getCaixas, getRetiradas } from "../services/caixas";
 import {
   addEntradaConsolidada,
@@ -507,39 +507,15 @@ export default function FluxoCaixa({ uid, dataHoje, loja = null }) {
     try {
       const { jsPDF, autoTable } = await loadPdfTools();
       const doc = new jsPDF();
-      let y = 18;
-
-      try {
-        const logo = await getPdfLogo(loja?.logomarca);
-        if (logo) doc.addImage(logo.dataUrl, logo.format, 14, 10, 22, 22);
-        y = 38;
-      } catch {
-        y = 18;
-      }
-
-      doc.setTextColor(24, 33, 47);
-      doc.setFontSize(18);
-      doc.text("Fluxo de Caixa", 42, y - 8);
-      doc.setFontSize(11);
-      doc.setTextColor(96, 112, 134);
-      doc.text(
-        modoFiltro === "periodo"
+      let y = await addPdfHeader(doc, {
+        loja, title: "Fluxo de Caixa",
+        lines: [modoFiltro === "periodo"
           ? `Periodo analisado: ${formatDateLabel(periodoReferencia.inicio)} ate ${formatDateLabel(periodoReferencia.fim)}`
           : `Dia analisado: ${formatDateLabel(periodoReferencia.inicio)}`,
-        42,
-        y - 2
-      );
-      if (buscaSaida || tipoSaidaFiltro !== "todas") {
-        doc.text(
-          `Filtro de saidas: ${tipoSaidaFiltro} ${buscaSaida ? `| busca: ${buscaSaida}` : ""}`,
-          42,
-          y + 4
-        );
-        y += 6;
-      }
-      y += 8;
+          ...(buscaSaida || tipoSaidaFiltro !== "todas" ? [`Filtro de saidas: ${tipoSaidaFiltro} ${buscaSaida ? `| busca: ${buscaSaida}` : ""}`] : [])],
+      });
 
-      drawSummaryCard(doc, {
+    drawSummaryCard(doc, {
         x: 14,
         y,
         w: 43,
@@ -766,6 +742,7 @@ export default function FluxoCaixa({ uid, dataHoje, loja = null }) {
         modoFiltro === "periodo"
           ? `${String(periodoReferencia.inicio || "").replaceAll("-", "")}-${String(periodoReferencia.fim || "").replaceAll("-", "")}`
           : String(periodoReferencia.inicio || "").replaceAll("-", "");
+      await addPdvPdfBranding(doc, { showLogo: false });
       doc.save(`fluxo-caixa-${sufixoArquivo}.pdf`);
     } catch (error) {
       console.error("Erro ao exportar PDF do fluxo de caixa:", error);
